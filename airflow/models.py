@@ -80,6 +80,8 @@ from airflow.utils.timeout import timeout
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.utils.log.logging_mixin import LoggingMixin
 
+from retrying import retry
+
 Base = declarative_base()
 ID_LEN = 250
 XCOM_RETURN_KEY = 'return_value'
@@ -153,6 +155,10 @@ def clear_task_instances(tis, session, activate_dag_runs=True, dag=None):
         for dr in drs:
             dr.state = State.RUNNING
             dr.start_date = datetime.utcnow()
+
+
+def retry_if_timeout(exception):
+    return type(exception).__name__ == 'AirflowTaskTimeout'
 
 
 class DagBag(BaseDagBag, LoggingMixin):
@@ -236,6 +242,7 @@ class DagBag(BaseDagBag, LoggingMixin):
                 del self.dags[dag_id]
         return self.dags.get(dag_id)
 
+    @retry(retry_on_exception=retry_if_timeout, wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=3)
     def process_file(self, filepath, only_if_updated=True, safe_mode=True):
         """
         Given a path to a python module or zip file, this method imports
